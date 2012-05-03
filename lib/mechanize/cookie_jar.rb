@@ -70,68 +70,87 @@ class Mechanize::CookieJar
     }
   end
 
-  # Save the cookie jar to a file in the format specified.
-  #
-  # Available formats:
+  # Serialize and return the cookie jar using the given serializer.
+  # 
+  # Built-in serializers:
   # :yaml  <- YAML structure
   # :cookiestxt  <- Mozilla's cookies.txt format
-  def save_as(file, format = :yaml)
+  #
+  # Or it could be any ruby object that respond_to dump(jar)
+  def serialize(serializer = :yaml)
+    if serializer == :yaml
+      serializer = Mechanize::CookieJar::Serialization::YAMLCoder.new
+    elsif serializer == :cookiestxt
+      serializer = Mechanize::CookieJar::Serialization::CookietxtCoder.new
+    end
+
+    raise ArgumentError, "Invalid serializer #{serializer.inspect}" unless serializer.respond_to? :dump
+
     jar = dup
     jar.cleanup true
 
-    open(file, 'w') { |f|
-      case format
-      when :yaml then
-        load_yaml
-
-        YAML.dump(jar.jar, f)
-      when :cookiestxt then
-        jar.dump_cookiestxt(f)
-      else
-        raise ArgumentError, "Unknown cookie jar file format"
-      end
-    }
-
-    self
+    serializer.dump(jar.jar)
   end
 
-  # Load cookie jar from a file in the format specified.
-  #
-  # Available formats:
-  # :yaml  <- YAML structure.
+  # Deserialize a cookie jar using the given deserializer and assign it to self.
+  # 
+  # Built-in deserializers:
+  # :yaml  <- YAML structure
   # :cookiestxt  <- Mozilla's cookies.txt format
-  def load(file, format = :yaml)
-    @jar = open(file) { |f|
-      case format
-      when :yaml then
-        load_yaml
+  #
+  # Or it could be any ruby object that respond_to load(serialized_jar)
+  def deserialize(serialized_jar, deserializer = :yaml)
+    if deserializer == :yaml
+      deserializer = Mechanize::CookieJar::Serialization::YAMLCoder.new
+    elsif deserializer == :cookiestxt
+      deserializer = Mechanize::CookieJar::Serialization::CookietxtCoder.new
+    end
 
-        YAML.load(f)
-      when :cookiestxt then
-        load_cookiestxt(f)
-      else
-        raise ArgumentError, "Unknown cookie jar file format"
-      end
-    }
+    raise ArgumentError, "Invalid serializer #{serializer.inspect}" unless deserializer.respond_to? :load
+
+    @jar = deserializer.load(serialized_jar)
 
     cleanup
 
     self
   end
 
-  def load_yaml # :nodoc:
-    begin
-      require 'psych'
-    rescue LoadError
+  # Serialize the cookie jar using the given serializer and save it to a file.
+  # 
+  # Built-in serializers:
+  # :yaml  <- YAML structure
+  # :cookiestxt  <- Mozilla's cookies.txt format
+  #
+  # Or it could be any ruby object that respond_to dump(jar)
+  def save_as(file, serializer = :yaml)
+    open(file, 'w') do |f|
+      f.write serialize(serializer)
     end
 
-    require 'yaml'
+    self
+  end
+
+  # Deserialize a cookie jar from a file using the given deserializer.
+  # 
+  # Built-in deserializers:
+  # :yaml  <- YAML structure
+  # :cookiestxt  <- Mozilla's cookies.txt format
+  #
+  # Or it could be any ruby object that respond_to load(jar)
+  def load(file, format = :yaml)
+    open(file) do |f|
+      deserialize(f.read, format)
+    end
+
+    self
   end
 
   # Clear the cookie jar
   def clear!
     @jar = {}
   end
+
+  # Move these into CookiestxtCoder
 
   # Read cookies from Mozilla cookies.txt-style IO stream
   def load_cookiestxt(io)
@@ -192,3 +211,6 @@ class Mechanize::CookieJar
   end
 end
 
+require 'mechanize/cookie_jar/serialization.rb'
+require 'mechanize/cookie_jar/serialization/yaml_coder.rb'
+require 'mechanize/cookie_jar/serialization/cookiestxt_coder.rb'
